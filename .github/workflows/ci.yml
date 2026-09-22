@@ -35,7 +35,11 @@ jobs:
       - name: go mod tidy 检查
         run: |
           go mod tidy
-          git diff --exit-code go.mod go.sum
+          if [ -n "$(git status --porcelain -- go.mod go.sum)" ]; then
+            echo "::error::go.mod/go.sum 未整理，请在本地运行 go mod tidy 后提交"
+            git status --porcelain -- go.mod go.sum
+            exit 1
+          fi
       - name: 单元测试
         run: go test -race -coverprofile=coverage.out ./...
       - name: 覆盖率汇总
