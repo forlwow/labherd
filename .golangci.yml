@@ -1,0 +1,50 @@
+# golangci-lint v2 配置
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard          # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - depguard               # 依赖方向（见 conventions.md 第 1 节）
+    - errorlint              # 错误必须用 %w 包装、用 errors.Is/As 判断
+    - gosec                  # 常见安全问题
+    - misspell               # 英文拼写
+    - revive                 # 命名与注释规范
+    - unconvert              # 多余的类型转换
+  settings:
+    depguard:
+      rules:
+        agent:
+          files: ["**/internal/agent/**"]
+          deny:
+            - pkg: github.com/forlwow/labherd/internal/controller
+              desc: agent 与 controller 不得互相导入，请通过 gen/ 中的接口通信
+        controller:
+          files: ["**/internal/controller/**"]
+          deny:
+            - pkg: github.com/forlwow/labherd/internal/agent
+              desc: agent 与 controller 不得互相导入，请通过 gen/ 中的接口通信
+        common:
+          files: ["**/internal/common/**"]
+          deny:
+            - pkg: github.com/forlwow/labherd/internal/agent
+              desc: common 不得依赖业务代码
+            - pkg: github.com/forlwow/labherd/internal/controller
+              desc: common 不得依赖业务代码
+  exclusions:
+    paths:
+      - ^gen/                # 生成代码不检查（正则，需锚定，否则会误伤 agent/）
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/forlwow/labherd
+  exclusions:
+    paths:
+      - ^gen/

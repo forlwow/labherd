@@ -1,16 +1,17 @@
+MODULE  := github.com/forlwow/labherd
 BIN     := bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -X github.com/forlwow/labherd/internal/common/version.Version=$(VERSION)
+LDFLAGS := -X $(MODULE)/internal/common/version.Version=$(VERSION)
 
 .PHONY: all fmt lint test build clean
 
 all: fmt lint test build
 
 fmt:
-	gofmt -w cmd internal
+	golangci-lint fmt
 
 lint:
-	go vet ./...
+	golangci-lint run
 
 test:
 	go test -race -cover ./...

@@ -1,0 +1,38 @@
+name: pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # PR 标题会成为 squash 合并后 main 上的提交信息，所以必须符合规范
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            refactor
+            perf
+            test
+            docs
+            build
+            ci
+            chore
+          scopes: |
+            agent
+            controller
+            web
+            api
+            db
+            deploy
+            ci
+            docs
+          requireScope: false
