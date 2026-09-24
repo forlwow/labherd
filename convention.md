@@ -6,7 +6,7 @@
 
 | 目录 | 放什么 | 不放什么 |
 |---|---|---|
-| `api/proto/labherd/v1/` | 接口定义（.proto） | 任何实现代码 |
+| `api/proto/labherd/<服务>/v1/` | 接口定义（.proto） | 任何实现代码 |
 | `cmd/<程序名>/` | 只有 `main.go`：读配置、组装模块、启动 | 业务逻辑 |
 | `internal/agent/` | Agent 专属逻辑 | — |
 | `internal/controller/` | Controller 专属逻辑 | — |
@@ -55,6 +55,8 @@
 | 请求/响应 | `<Rpc名>Request` / `<Rpc名>Response` | `ListNodesRequest` |
 
 兼容性规则：已发布的字段编号不得修改或复用；删除字段时用 `reserved` 占住编号。由 `buf breaking` 检查。
+
+proto 文件所在目录必须与 package 一致：`labherd.agent.v1` 放在 `api/proto/labherd/agent/v1/`。由 buf lint 检查。
 
 ## 4. 数据库命名
 
