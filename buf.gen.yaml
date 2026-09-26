@@ -1,0 +1,9 @@
+version: v2
+clean: true                # 生成前清空 gen/，这样删除 proto 后不会残留旧文件
+plugins:
+  - local: protoc-gen-go           # 生成消息类型：agent.pb.go
+    out: gen
+    opt: paths=source_relative
+  - local: protoc-gen-go-grpc      # 生成服务接口：agent_grpc.pb.go
+    out: gen
+    opt: paths=source_relative
