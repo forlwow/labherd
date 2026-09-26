@@ -1,0 +1,29 @@
+name: 工作项
+description: 新功能、工程任务或文档
+body:
+  - type: markdown
+    attributes:
+      value: 提交后手动添加一个类型标签（feature/task/docs/question）、组件标签，并挂到里程碑。
+  - type: textarea
+    id: what
+    attributes:
+      label: 要做什么
+      description: 做什么、为什么做。不写实现细节。
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: 完成标准
+      description: 可以验证的条目，将成为 PR 中"怎么验证的"。
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: 不做什么
+      description: 明确排除的内容，防止范围蔓延。确实没有就写"无"。
+    validations:
+      required: true
