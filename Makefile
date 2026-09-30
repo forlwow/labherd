@@ -7,18 +7,36 @@ BIN_DIR := bin
 CMDS    := labherd-agent labherd-controller
 
 .DEFAULT_GOAL := help
-.PHONY: all proto proto-lint fmt lint test tidy-check build clean hooks help $(CMDS)
+.PHONY: all proto proto-lint fmt lint test tidy-check build clean hooks help tools $(CMDS)
 
 # ===== 组合目标 =====
 all: fmt lint test build ## 提交前完整检查
 
 # ===== 代码生成与接口检查 =====
+
+
+# ---- proto 工具链（版本固定，升级时三个一起改） ----
+BUF_VERSION             := v1.73.0
+PROTOC_GEN_GO_VERSION   := v1.36.12
+PROTOC_GEN_GRPC_VERSION := v1.6.2
+BUF_AGAINST ?= https://github.com/forlwow/labherd.git#branch=main
+
+tools: ## 安装 buf 与代码生成插件
+	go install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GRPC_VERSION)
+
 proto: ## 由 .proto 生成 gen/
 	buf generate
 
-proto-lint: ## proto 风格检查 + 与 main 比较兼容性
+proto-lint: ## proto 格式、风格与兼容性检查
+	buf format --diff --exit-code
 	buf lint
-	buf breaking --against '.git#branch=main'
+	@if git cat-file -e origin/main:buf.yaml 2>/dev/null; then \
+		buf breaking --against '$(BUF_AGAINST)'; \
+	else \
+		echo "main 上还没有 buf.yaml，跳过兼容性检查"; \
+	fi
 
 # ===== 格式、检查、测试 =====
 fmt: ## 格式化代码

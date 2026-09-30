@@ -1,0 +1,9 @@
+version: v2
+modules:
+  - path: api/proto        # proto 的根目录，package labherd.agent.v1 对应 api/proto/labherd/agent/v1/
+lint:
+  use:
+    - STANDARD             # 命名、目录与 package 对应、请求/响应命名等规则
+breaking:
+  use:
+    - FILE                 # 最严格的兼容性检查：改编号、改类型、删字段都会报错
