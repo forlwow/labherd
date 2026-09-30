@@ -82,6 +82,9 @@
 
 proto 文件所在目录必须与 package 一致：`labherd.agent.v1` 放在 `api/proto/labherd/agent/v1/`。由 buf lint 检查。
 
+- 文件名：小写下划线；一个 package 只有一个 service 时，文件以服务命名，如 `agent.proto`。
+- 已发布的 proto 文件不得改名，已发布的类型不得在文件之间移动（`buf breaking` 的 FILE 规则会报错）；新增内容可以放入新文件。
+
 兼容性规则：已发布的字段编号不得修改或复用；删除字段时用 `reserved` 占住编号和名字；准备淘汰的字段先标记 `[deprecated = true]` 并注释原因。不兼容的修改新开 `v2` 包。由 `buf breaking` 检查。
 
 接口文档即 proto 注释：每个 service、rpc、message 和字段都写注释，说明代码表达不了的内容——单位与范围、谁在什么时候发送、字段缺失时的含义、废弃原因。不在其他文档中重复列出字段。
