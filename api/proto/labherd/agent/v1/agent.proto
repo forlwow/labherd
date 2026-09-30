@@ -1,0 +1,285 @@
+syntax = "proto3";
+
+// Agent 与 Controller 之间的通信协议。
+// 设计依据见 docs/adr/0001-agent-push-model.md。
+package labherd.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/forlwow/labherd/gen/labherd/agent/v1;agentv1";
+
+// AgentService 由 Controller 提供，由 Agent 主动调用。
+service AgentService {
+  // OpenSession 建立一条长期保持的双向流，由 Agent 发起。
+  //
+  // 会话流程：
+  //   1. Agent 发送 Hello。第一条消息不是 Hello 时，Controller 以
+  //      FAILED_PRECONDITION 关闭流。
+  //   2. Controller 回复 HelloAck，其中带有该 Agent 进程已确认的最大序号。
+  //   3. Agent 丢弃缓冲中序号不大于该值的批次，按序号从小到大补发其余批次，
+  //      之后周期性发送 Heartbeat、MetricsBatch、ProcessSnapshot。
+  //   4. Controller 将指标写入存储后回复 MetricsAck；写入失败时关闭流，
+  //      不跳过该批次。Agent 只在收到确认后才从缓冲中删除批次。
+  //
+  // 同一 node_id 同一时刻只保留一个会话：新会话的 Hello 到达时，Controller
+  // 关闭该节点的旧会话。断网后旧连接可能尚未被检测到断开，此规则保证重连总能成功。
+  //
+  // 流断开后，Agent 按指数退避加随机抖动重连，并从第 1 步重新开始。
+  rpc OpenSession(stream OpenSessionRequest) returns (stream OpenSessionResponse);
+}
+
+// ======== 上行：Agent → Controller ========
+
+// OpenSessionRequest 是 Agent 发往 Controller 的消息，每条只携带一种内容。
+message OpenSessionRequest {
+  oneof payload {
+    // 每次建立流后的第一条消息，之后不再发送。
+    Hello hello = 1;
+    // 存活信号，与指标分开发送。
+    Heartbeat heartbeat = 2;
+    // 一批指标采样，需要 Controller 确认。
+    MetricsBatch metrics = 3;
+    // GPU 进程的当前快照，不缓冲、不确认。
+    ProcessSnapshot processes = 4;
+  }
+}
+
+// Hello 标识发起连接的 Agent，并携带节点的静态信息。
+message Hello {
+  // 节点的稳定标识：机器重启或修改主机名后保持不变。
+  string node_id = 1;
+
+  // Agent 进程每次启动时随机生成，网络重连时不变。
+  // 序号只在同一个 instance_id 内有意义：Agent 重启后缓冲清空，序号从 1 重新开始。
+  string instance_id = 2;
+
+  // 主机名，仅用于显示。
+  string hostname = 3;
+
+  // Agent 版本号，与 git tag 一致，如 "v0.1.0"。
+  string agent_version = 4;
+
+  // 主机的静态信息。
+  HostInfo host = 5;
+
+  // 本机的 GPU 清单。没有 GPU 或未安装驱动时为空。
+  // 清单变化（如驱动重装）时，Agent 重新建立会话以发送新的 Hello。
+  repeated GpuInfo gpus = 6;
+}
+
+// HostInfo 是主机不随时间变化的信息。
+message HostInfo {
+  // 操作系统发行版，如 "Ubuntu 22.04.4 LTS"。
+  string os = 1;
+
+  // 内核版本，如 "5.15.0-91-generic"。
+  string kernel_version = 2;
+
+  // CPU 型号。
+  string cpu_model = 3;
+
+  // 逻辑 CPU 数。
+  uint32 cpu_logical_cores = 4;
+
+  // 物理内存总量。
+  uint64 memory_total_bytes = 5;
+
+  // NVIDIA 驱动版本；未安装驱动时为空字符串。
+  string gpu_driver_version = 6;
+}
+
+// GpuInfo 是一张 GPU 不随时间变化的信息。
+message GpuInfo {
+  // NVML 提供的 UUID，全局唯一，是 GPU 的主标识。
+  // 不用 index 作标识，因为 index 会随 CUDA_VISIBLE_DEVICES、驱动重装而变化。
+  string uuid = 1;
+
+  // nvidia-smi 中显示的序号，仅用于显示。
+  uint32 index = 2;
+
+  // 型号，如 "NVIDIA GeForce RTX 4090"。
+  string model = 3;
+
+  // 显存总量。
+  uint64 memory_total_bytes = 4;
+}
+
+// Heartbeat 表示 Agent 进程存活。
+// 与指标分开发送：采集卡住（如 NVML 调用超时）时，节点仍能被判断为在线。
+message Heartbeat {
+  // 缓冲中尚未得到确认的批次数，用于在界面上展示补发进度。
+  uint32 pending_batches = 1;
+}
+
+// MetricsBatch 是一批按时间顺序排列的采样。
+// 正常情况下每批只有一个采样；断网恢复后补发时，一批可以包含多个采样。
+// Agent 需限制单批大小，使其远小于 gRPC 默认的 4 MiB 单条消息上限。
+message MetricsBatch {
+  // 批次序号，在同一个 instance_id 内从 1 开始严格递增。
+  uint64 seq = 1;
+
+  // 按 collected_at 升序排列，不为空。
+  repeated MetricsSample samples = 2;
+}
+
+// MetricsSample 是某一时刻整台机器的一次采样。
+message MetricsSample {
+  // 采样时刻，取自 Agent 本地时钟。
+  // 补发时可能远早于 Controller 收到的时刻，存储时必须使用此时间；
+  // 同一采样重发时时间相同，存储层据此去重。
+  google.protobuf.Timestamp collected_at = 1;
+
+  // 主机级指标。
+  HostMetrics host = 2;
+
+  // 每张 GPU 一项；没有 GPU 时为空。
+  repeated GpuMetrics gpus = 3;
+}
+
+// HostMetrics 是主机级指标。
+// 数据读取自 /proc 与 statfs，总能获得，因此字段不用 optional。
+message HostMetrics {
+  // 自上次采样以来所有 CPU 的平均利用率，范围 0～1。
+  double cpu_utilization_ratio = 1;
+
+  // 1 分钟平均负载。
+  double load1 = 2;
+
+  // 可用内存，取 /proc/meminfo 中的 MemAvailable。
+  // 已用内存由 Controller 以 HostInfo.memory_total_bytes 减去此值计算。
+  uint64 memory_available_bytes = 3;
+
+  // 每个挂载点一项，只包含本地块设备上的文件系统。
+  repeated DiskUsage disks = 4;
+}
+
+// DiskUsage 是一个挂载点的空间使用情况。
+message DiskUsage {
+  // 挂载点，如 "/data"。
+  string mount_point = 1;
+
+  // 文件系统总容量。
+  uint64 total_bytes = 2;
+
+  // 普通用户可用的空间（statfs 的 f_bavail 乘以块大小）。
+  // 不含为 root 保留的块，比"总量减已用"更接近实际可写入量。
+  uint64 available_bytes = 3;
+}
+
+// GpuMetrics 是一张 GPU 的指标。
+// 部分指标在某些型号或驱动上不受支持（NVML 返回 NOT_SUPPORTED），
+// 因此都用 optional：未设置表示读不到，而不是 0。
+message GpuMetrics {
+  // 对应 Hello 中 GpuInfo.uuid。
+  string uuid = 1;
+
+  // 采样周期内 GPU 核心忙碌的时间比例，范围 0～1。
+  optional double utilization_ratio = 2;
+
+  // 已用显存。
+  optional uint64 memory_used_bytes = 3;
+
+  // 核心温度。
+  optional double temperature_celsius = 4;
+
+  // 当前功耗。
+  optional double power_watts = 5;
+}
+
+// ProcessSnapshot 是本机所有 GPU 进程在某一时刻的完整列表。
+// Controller 用它整体替换该节点此前的进程列表，只有最新一份有意义，
+// 因此 Agent 不缓冲、不补发，Controller 也不确认。
+message ProcessSnapshot {
+  // 快照时刻。
+  google.protobuf.Timestamp collected_at = 1;
+
+  // 一个进程使用多张 GPU 时，每张 GPU 各一项。
+  repeated GpuProcess processes = 2;
+}
+
+// GpuProcess 是一个进程在一张 GPU 上的占用。
+// 这里只包含 Agent 在本机观察到的身份信息；
+// 归属到哪个平台用户由 Controller 根据映射表判断。
+message GpuProcess {
+  // 对应 GpuInfo.uuid。
+  string gpu_uuid = 1;
+
+  // 宿主机 PID 命名空间中的进程号。
+  uint32 pid = 2;
+
+  // 进程启动时刻。与 pid 一起唯一确定一个进程，避免 PID 复用造成误判。
+  google.protobuf.Timestamp started_at = 3;
+
+  // 进程的有效 UID，即进程当前以哪个用户身份运行。
+  // 通过 sudo 启动或在容器中运行时，通常为 0（root）。
+  uint32 uid = 4;
+
+  // uid 在本机解析得到的用户名；解析失败时为空。
+  string user = 5;
+
+  // 进程名（/proc/<pid>/comm），不含参数，避免传出命令行中的敏感信息。
+  string command = 6;
+
+  // 该进程在这张 GPU 上占用的显存。部分环境下 NVML 无法提供，此时不设置。
+  optional uint64 gpu_memory_used_bytes = 7;
+
+  // 登录 UID（/proc/<pid>/loginuid）：进程所属登录会话的用户，
+  // 在 SSH 登录时设置，sudo、su 之后不变。
+  // 不设置表示进程不属于任何登录会话，例如系统服务或容器内的进程。
+  optional uint32 login_uid = 8;
+
+  // login_uid 在本机解析得到的用户名；login_uid 未设置或解析失败时为空。
+  string login_user = 9;
+
+  // 进程所在的容器；不在容器中时不设置。
+  Container container = 10;
+}
+
+// Container 是 GPU 进程所在的容器。
+message Container {
+  // 容器运行时，如 "docker"。
+  string runtime = 1;
+
+  // 完整的容器 ID，从 /proc/<pid>/cgroup 中解析，不需要访问容器运行时。
+  string id = 2;
+
+  // 容器名。Agent 能访问容器运行时 API 时填写，否则为空。
+  string name = 3;
+
+  // 镜像名，填写条件同 name。
+  string image = 4;
+
+  // 容器标签中以 "labherd." 开头的部分，其余标签不上报。
+  // 由平台启动的容器（M4）带有 labherd.user 标签，值为平台用户名。
+  map<string, string> labels = 5;
+}
+
+// ======== 下行：Controller → Agent ========
+
+// OpenSessionResponse 是 Controller 发往 Agent 的消息。
+// M3 起将在 oneof 中增加迁移指令。
+message OpenSessionResponse {
+  oneof payload {
+    // 对 Hello 的回复，每个会话一次。
+    HelloAck hello_ack = 1;
+    // 对 MetricsBatch 的确认。
+    MetricsAck metrics_ack = 2;
+  }
+}
+
+// HelloAck 表示 Controller 已接受会话。
+message HelloAck {
+  // Controller 对该 node_id 与 instance_id 已确认的最大序号；从未确认过时为 0。
+  // Controller 重启后此值为 0，Agent 会重发全部缓冲，重复数据由存储层去重。
+  uint64 last_acked_seq = 1;
+
+  // Controller 的当前时间。
+  // 采样时刻取自 Agent 本地时钟，两者相差过大时 Agent 记录警告日志。
+  google.protobuf.Timestamp server_time = 2;
+}
+
+// MetricsAck 确认指标已写入存储。
+message MetricsAck {
+  // 累积确认：序号不大于该值的批次均已写入。
+  uint64 acked_seq = 1;
+}
