@@ -11,13 +11,18 @@ import (
 	"os/signal"
 	"syscall"
 
+	"google.golang.org/grpc"
+
 	agentv1 "github.com/forlwow/labherd/gen/labherd/agent/v1"
 	"github.com/forlwow/labherd/internal/common/version"
 	"github.com/forlwow/labherd/internal/controller/session"
-	"google.golang.org/grpc"
 )
 
 func main() {
+	if err := run(); err != nil {
+		slog.Error("controller exited", "err", err)
+		os.Exit(1)
+	}
 }
 
 func run() error {
