@@ -26,7 +26,7 @@ func main() {
 }
 
 func run() error {
-	listenAddr := flag.String("listen", "9090", "gRPC listen address for agents")
+	listenAddr := flag.String("listen", ":9090", "gRPC listen address for agents")
 	showVersion := flag.Bool("version", false, "show version and exit")
 	flag.Parse()
 	if *showVersion {
