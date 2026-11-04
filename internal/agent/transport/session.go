@@ -11,7 +11,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentv1 "github.com/forlwow/labherd/gen/labherd/agent/v1"
 )
@@ -21,6 +20,12 @@ var ErrSessionClosed = errors.New("session closed by controller")
 
 // maxClockSkew 是本地时钟与 Controller 时钟允许的最大偏差，超过时记录警告。
 const maxClockSkew = 5 * time.Second
+
+// Sampler 在给定时刻采集一次整机指标。
+// 由 collector 包实现；定义在使用方，测试时可以替换为假实现。
+type Sampler interface {
+	Sample(ctx context.Context, now time.Time) *agentv1.MetricsSample
+}
 
 // Config 是建立会话所需的参数。
 type Config struct {
@@ -34,6 +39,10 @@ type Config struct {
 	Hostname string
 	// AgentVersion 是 Agent 的版本号。
 	AgentVersion string
+	// Host 是主机的静态信息，随 Hello 发送。
+	Host *agentv1.HostInfo
+	// Sampler 每个周期采集一次指标。
+	Sampler Sampler
 	// Interval 是发送指标的周期。
 	Interval time.Duration
 }
@@ -90,7 +99,8 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger) error {
 
 		case now := <-ticker.C:
 			seq++
-			if err := stream.Send(metricsBatch(seq, now)); err != nil {
+			sample := cfg.Sampler.Sample(ctx, now)
+			if err := stream.Send(metricsBatch(seq, sample)); err != nil {
 				// 流断开后 Send 只返回 io.EOF，真正的原因由 Recv 得到。
 				if errors.Is(err, io.EOF) {
 					err = <-recvErr
@@ -102,6 +112,7 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger) error {
 				}
 				return err
 			}
+			logSample(log, seq, sample)
 		}
 	}
 }
@@ -114,6 +125,7 @@ func handshake(stream agentv1.AgentService_OpenSessionClient, cfg Config, log *s
 			InstanceId:   cfg.InstanceID,
 			Hostname:     cfg.Hostname,
 			AgentVersion: cfg.AgentVersion,
+			Host:         cfg.Host,
 		}},
 	})
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -163,14 +175,23 @@ func receive(stream agentv1.AgentService_OpenSessionClient, log *slog.Logger) er
 	}
 }
 
-// metricsBatch 构造只含采样时刻的指标批次，真实指标由采集器的 Issue 填充。
-func metricsBatch(seq uint64, collectedAt time.Time) *agentv1.OpenSessionRequest {
+// metricsBatch 把一个采样包装成批次。断线补发时一批会有多个采样，由缓冲的 Issue 实现。
+func metricsBatch(seq uint64, sample *agentv1.MetricsSample) *agentv1.OpenSessionRequest {
 	return &agentv1.OpenSessionRequest{
 		Payload: &agentv1.OpenSessionRequest_Metrics{Metrics: &agentv1.MetricsBatch{
-			Seq: seq,
-			Samples: []*agentv1.MetricsSample{
-				{CollectedAt: timestamppb.New(collectedAt)},
-			},
+			Seq:     seq,
+			Samples: []*agentv1.MetricsSample{sample},
 		}},
 	}
+}
+
+// logSample 以 DEBUG 级别记录发出的主要指标，便于本地调试。
+func logSample(log *slog.Logger, seq uint64, sample *agentv1.MetricsSample) {
+	h := sample.GetHost()
+	log.Debug("metrics sent",
+		"seq", seq,
+		"cpu_utilization_ratio", h.GetCpuUtilizationRatio(),
+		"load1", h.GetLoad1(),
+		"memory_available_bytes", h.GetMemoryAvailableBytes(),
+		"disk_count", len(h.GetDisks()))
 }
