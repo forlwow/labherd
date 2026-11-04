@@ -17,13 +17,13 @@ import (
 )
 
 // fakeController 是测试用的 Controller：回复 HelloAck，确认每个批次，
-// 并把收到的 Hello 与批次序号交给测试。
+// 并把收到的 Hello 与批次交给测试。
 // agent 不能导入 controller 的实现，所以这里单独写一个。
 type fakeController struct {
 	agentv1.UnimplementedAgentServiceServer
 
-	hellos chan *agentv1.Hello
-	seqs   chan uint64
+	hellos  chan *agentv1.Hello
+	batches chan *agentv1.MetricsBatch
 	// closeAfter > 0 时，收到这么多个批次后主动结束会话。
 	closeAfter int
 }
@@ -53,7 +53,7 @@ func (f *fakeController) OpenSession(stream agentv1.AgentService_OpenSessionServ
 		if batch == nil {
 			continue
 		}
-		f.seqs <- batch.GetSeq()
+		f.batches <- batch
 		err = stream.Send(&agentv1.OpenSessionResponse{
 			Payload: &agentv1.OpenSessionResponse_MetricsAck{MetricsAck: &agentv1.MetricsAck{
 				AckedSeq: batch.GetSeq(),
@@ -86,8 +86,18 @@ func startFake(t *testing.T, f *fakeController) string {
 func newFake(closeAfter int) *fakeController {
 	return &fakeController{
 		hellos:     make(chan *agentv1.Hello, 1),
-		seqs:       make(chan uint64, 100),
+		batches:    make(chan *agentv1.MetricsBatch, 100),
 		closeAfter: closeAfter,
+	}
+}
+
+// fakeSampler 返回只含采样时刻与固定负载的采样。
+type fakeSampler struct{}
+
+func (fakeSampler) Sample(_ context.Context, now time.Time) *agentv1.MetricsSample {
+	return &agentv1.MetricsSample{
+		CollectedAt: timestamppb.New(now),
+		Host:        &agentv1.HostMetrics{Load1: 1.5},
 	}
 }
 
@@ -98,6 +108,8 @@ func testConfig(addr string) Config {
 		InstanceID:     "instance-1",
 		Hostname:       "host-1",
 		AgentVersion:   "test",
+		Host:           &agentv1.HostInfo{CpuModel: "Test CPU"},
+		Sampler:        fakeSampler{},
 		Interval:       10 * time.Millisecond,
 	}
 }
@@ -129,12 +141,18 @@ func TestRun_SendsHelloThenSequentialBatches(t *testing.T) {
 	done := runAsync(ctx, testConfig(addr))
 
 	hello := <-fake.hellos
-	if hello.GetNodeId() != "node-1" || hello.GetInstanceId() != "instance-1" {
-		t.Errorf("hello = %v, want node-1/instance-1", hello)
+	if hello.GetNodeId() != "node-1" || hello.GetInstanceId() != "instance-1" ||
+		hello.GetHost().GetCpuModel() != "Test CPU" {
+		t.Errorf("hello = %v, want node-1/instance-1 with host info", hello)
 	}
 	for want := uint64(1); want <= 3; want++ {
-		if got := <-fake.seqs; got != want {
+		batch := <-fake.batches
+		if got := batch.GetSeq(); got != want {
 			t.Fatalf("seq = %d, want %d", got, want)
+		}
+		samples := batch.GetSamples()
+		if len(samples) != 1 || samples[0].GetHost().GetLoad1() != 1.5 {
+			t.Fatalf("samples = %v, want one sample from the sampler", samples)
 		}
 	}
 
