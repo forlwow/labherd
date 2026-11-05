@@ -41,6 +41,8 @@ type Config struct {
 	AgentVersion string
 	// Host 是主机的静态信息，随 Hello 发送。
 	Host *agentv1.HostInfo
+	// GPUs 是本机的 GPU 清单，随 Hello 发送；没有 GPU 时为空。
+	GPUs []*agentv1.GpuInfo
 	// Sampler 每个周期采集一次指标。
 	Sampler Sampler
 	// Interval 是发送指标的周期。
@@ -126,6 +128,7 @@ func handshake(stream agentv1.AgentService_OpenSessionClient, cfg Config, log *s
 			Hostname:     cfg.Hostname,
 			AgentVersion: cfg.AgentVersion,
 			Host:         cfg.Host,
+			Gpus:         cfg.GPUs,
 		}},
 	})
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -185,13 +188,35 @@ func metricsBatch(seq uint64, sample *agentv1.MetricsSample) *agentv1.OpenSessio
 	}
 }
 
-// logSample 以 DEBUG 级别记录发出的主要指标，便于本地调试。
+// logSample 以 DEBUG 级别记录发出的指标，便于本地调试：一行主机指标，每张 GPU 各一行。
+// GPU 指标读不到时不设置，日志中也不输出该字段，以便与值为 0 区分。
 func logSample(log *slog.Logger, seq uint64, sample *agentv1.MetricsSample) {
+	if !log.Enabled(context.Background(), slog.LevelDebug) {
+		return
+	}
 	h := sample.GetHost()
 	log.Debug("metrics sent",
 		"seq", seq,
 		"cpu_utilization_ratio", h.GetCpuUtilizationRatio(),
 		"load1", h.GetLoad1(),
 		"memory_available_bytes", h.GetMemoryAvailableBytes(),
-		"disk_count", len(h.GetDisks()))
+		"disk_count", len(h.GetDisks()),
+		"gpu_count", len(sample.GetGpus()))
+
+	for _, g := range sample.GetGpus() {
+		attrs := []any{"seq", seq, "uuid", g.GetUuid()}
+		if g.UtilizationRatio != nil {
+			attrs = append(attrs, "utilization_ratio", g.GetUtilizationRatio())
+		}
+		if g.MemoryUsedBytes != nil {
+			attrs = append(attrs, "memory_used_bytes", g.GetMemoryUsedBytes())
+		}
+		if g.TemperatureCelsius != nil {
+			attrs = append(attrs, "temperature_celsius", g.GetTemperatureCelsius())
+		}
+		if g.PowerWatts != nil {
+			attrs = append(attrs, "power_watts", g.GetPowerWatts())
+		}
+		log.Debug("gpu metrics sent", attrs...)
+	}
 }

@@ -109,6 +109,7 @@ func testConfig(addr string) Config {
 		Hostname:       "host-1",
 		AgentVersion:   "test",
 		Host:           &agentv1.HostInfo{CpuModel: "Test CPU"},
+		GPUs:           []*agentv1.GpuInfo{{Uuid: "GPU-test"}},
 		Sampler:        fakeSampler{},
 		Interval:       10 * time.Millisecond,
 	}
@@ -142,8 +143,9 @@ func TestRun_SendsHelloThenSequentialBatches(t *testing.T) {
 
 	hello := <-fake.hellos
 	if hello.GetNodeId() != "node-1" || hello.GetInstanceId() != "instance-1" ||
-		hello.GetHost().GetCpuModel() != "Test CPU" {
-		t.Errorf("hello = %v, want node-1/instance-1 with host info", hello)
+		hello.GetHost().GetCpuModel() != "Test CPU" ||
+		len(hello.GetGpus()) != 1 || hello.GetGpus()[0].GetUuid() != "GPU-test" {
+		t.Errorf("hello = %v, want node-1/instance-1 with host and gpu info", hello)
 	}
 	for want := uint64(1); want <= 3; want++ {
 		batch := <-fake.batches
