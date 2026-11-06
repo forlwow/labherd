@@ -10,8 +10,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
+
+	"github.com/forlwow/labherd/internal/controller/registry"
 
 	agentv1 "github.com/forlwow/labherd/gen/labherd/agent/v1"
 	"github.com/forlwow/labherd/internal/common/version"
@@ -27,20 +30,27 @@ func main() {
 
 func run() error {
 	listenAddr := flag.String("listen", ":9090", "gRPC listen address for agents")
+	lostTimeout := flag.Duration("lost-timeout", 10*time.Second, "mark a node lost after this long without messages")
+	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	showVersion := flag.Bool("version", false, "show version and exit")
 	flag.Parse()
 	if *showVersion {
 		fmt.Printf("labherd-controller: %s\n", version.Version)
 		return nil
 	}
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(*logLevel)); err != nil {
+		return fmt.Errorf("parse log level: %w", err)
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(log)
+	reg := registry.New(*lostTimeout)
 	lis, err := net.Listen("tcp", *listenAddr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
 	srv := grpc.NewServer()
-	agentv1.RegisterAgentServiceServer(srv, session.NewServer(log))
+	agentv1.RegisterAgentServiceServer(srv, session.NewServer(reg, log))
 	defer srv.Stop()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
