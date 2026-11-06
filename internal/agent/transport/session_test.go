@@ -50,6 +50,10 @@ func (f *fakeController) OpenSession(stream agentv1.AgentService_OpenSessionServ
 	for received := 0; ; {
 		req, err := stream.Recv()
 		if err != nil {
+			f.ended <- err
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
 			return err
 		}
 		batch := req.GetMetrics()
@@ -63,10 +67,6 @@ func (f *fakeController) OpenSession(stream agentv1.AgentService_OpenSessionServ
 			}},
 		})
 		if err != nil {
-			f.ended <- err
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
 			return err
 		}
 		received++
