@@ -18,6 +18,9 @@ import (
 // ErrSessionClosed 表示 Controller 主动正常结束了会话。
 var ErrSessionClosed = errors.New("session closed by controller")
 
+// closeTimeout 是正常结束会话时，等待 Controller 确认的最长时间。
+const closeTimeout = 2 * time.Second
+
 // maxClockSkew 是本地时钟与 Controller 时钟允许的最大偏差，超过时记录警告。
 const maxClockSkew = 5 * time.Second
 
@@ -61,16 +64,22 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	}
 	defer func() { _ = conn.Close() }()
 
-	// 函数返回时取消 ctx，使流和接收协程一起结束。
-	ctx, cancel := context.WithCancel(ctx)
+	// 流不随 ctx 取消：ctx 取消（Ctrl+C、systemd stop）后，还要先通知 Controller 正常结束，
+	// 等它确认后再断开，Controller 才会把节点标为离线而不是失联。
+	// 函数返回时取消 streamCtx，使流和接收协程一起结束。
+	streamCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
 
-	stream, err := agentv1.NewAgentServiceClient(conn).OpenSession(ctx)
+	stream, err := agentv1.NewAgentServiceClient(conn).OpenSession(streamCtx)
 	if err != nil {
 		return fmt.Errorf("open session: %w", err)
 	}
 
-	if err := handshake(stream, cfg, log); err != nil {
+	// 握手期间 ctx 被取消时直接断开，不必等待 HelloAck。
+	stopWatch := context.AfterFunc(ctx, cancel)
+	err = handshake(stream, cfg, log)
+	stopWatch()
+	if err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -89,7 +98,7 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	for {
 		select {
 		case <-ctx.Done():
-			_ = stream.CloseSend()
+			closeSession(stream, recvErr, log)
 			return nil
 
 		case err := <-recvErr:
@@ -116,6 +125,22 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger) error {
 			}
 			logSample(log, seq, sample)
 		}
+	}
+}
+
+// closeSession 通知 Controller 不再发送消息，并等待它结束会话，最多等待 closeTimeout。
+// Controller 收到 EOF 后正常返回，接收协程随之得到 ErrSessionClosed。
+func closeSession(stream agentv1.AgentService_OpenSessionClient, recvErr <-chan error, log *slog.Logger) {
+	if err := stream.CloseSend(); err != nil {
+		return
+	}
+	select {
+	case err := <-recvErr:
+		if !errors.Is(err, ErrSessionClosed) {
+			log.Debug("session ended while closing", "err", err)
+		}
+	case <-time.After(closeTimeout):
+		log.Warn("controller did not confirm session close in time")
 	}
 }
 
