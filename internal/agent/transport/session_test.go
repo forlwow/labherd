@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"testing"
@@ -24,6 +25,8 @@ type fakeController struct {
 
 	hellos  chan *agentv1.Hello
 	batches chan *agentv1.MetricsBatch
+	// ended 收到会话结束时 Recv 返回的错误：Agent 正常结束时为 io.EOF。
+	ended chan error
 	// closeAfter > 0 时，收到这么多个批次后主动结束会话。
 	closeAfter int
 }
@@ -47,6 +50,10 @@ func (f *fakeController) OpenSession(stream agentv1.AgentService_OpenSessionServ
 	for received := 0; ; {
 		req, err := stream.Recv()
 		if err != nil {
+			f.ended <- err
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
 			return err
 		}
 		batch := req.GetMetrics()
@@ -87,6 +94,7 @@ func newFake(closeAfter int) *fakeController {
 	return &fakeController{
 		hellos:     make(chan *agentv1.Hello, 1),
 		batches:    make(chan *agentv1.MetricsBatch, 100),
+		ended:      make(chan error, 1),
 		closeAfter: closeAfter,
 	}
 }
@@ -189,5 +197,29 @@ func TestRun_ReturnsUnavailableWithoutController(t *testing.T) {
 	// status.Code 能识别经过 %w 包装的 gRPC 错误。
 	if code := status.Code(err); code != codes.Unavailable {
 		t.Errorf("err = %v, want Unavailable", err)
+	}
+}
+
+func TestRun_CancelClosesSessionGracefully(t *testing.T) {
+	t.Parallel()
+	fake := newFake(0)
+	addr := startFake(t, fake)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := runAsync(ctx, testConfig(addr))
+	<-fake.batches
+
+	cancel()
+	if err := waitResult(t, done); err != nil {
+		t.Errorf("Run after cancel = %v, want nil", err)
+	}
+	// Controller 应看到正常结束（EOF），而不是连接被取消。
+	select {
+	case err := <-fake.ended:
+		if !errors.Is(err, io.EOF) {
+			t.Errorf("controller saw %v, want io.EOF", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("controller did not see the session end")
 	}
 }
