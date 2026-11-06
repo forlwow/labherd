@@ -16,6 +16,8 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/forlwow/labherd/internal/controller/registry"
+
 	agentv1 "github.com/forlwow/labherd/gen/labherd/agent/v1"
 )
 
@@ -23,13 +25,29 @@ import (
 // bufconn 不占用真实端口，测试可以并行运行。
 func openSession(t *testing.T) agentv1.AgentService_OpenSessionClient {
 	t.Helper()
+	return startServer(t).open(t)
+}
 
-	lis := bufconn.Listen(1 << 20)
+// testServer 是在内存中运行的 Server 及其注册表。
+type testServer struct {
+	lis *bufconn.Listener
+	reg *registry.Registry
+}
+
+func startServer(t *testing.T) *testServer {
+	t.Helper()
+	ts := &testServer{lis: bufconn.Listen(1 << 20), reg: registry.New(time.Minute)}
 	srv := grpc.NewServer()
-	agentv1.RegisterAgentServiceServer(srv, NewServer(slog.New(slog.DiscardHandler)))
-	go func() { _ = srv.Serve(lis) }()
+	agentv1.RegisterAgentServiceServer(srv, NewServer(ts.reg, slog.New(slog.DiscardHandler)))
+	go func() { _ = srv.Serve(ts.lis) }()
 	t.Cleanup(srv.Stop)
+	return ts
+}
 
+// open 以 Agent 身份打开一条会话。
+func (ts *testServer) open(t *testing.T) agentv1.AgentService_OpenSessionClient {
+	t.Helper()
+	lis := ts.lis
 	conn, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 			return lis.DialContext(ctx)
@@ -156,4 +174,66 @@ func TestServer_RejectsDuplicateHello(t *testing.T) {
 	if code := status.Code(err); code != codes.FailedPrecondition {
 		t.Errorf("code = %v, want FailedPrecondition", code)
 	}
+}
+
+// waitStatus 等待节点进入 want 状态。会话结束后注册表的更新发生在服务端协程中，需要轮询。
+func waitStatus(t *testing.T, reg *registry.Registry, nodeID string, want registry.Status) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		n, ok := reg.Get(nodeID)
+		if ok && n.Status == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("node %s status = %q (found=%v), want %q", nodeID, n.Status, ok, want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestServer_RegistersNodeAndSample(t *testing.T) {
+	t.Parallel()
+	ts := startServer(t)
+	stream := ts.open(t)
+
+	mustSend(t, stream, helloReq())
+	mustRecv(t, stream)
+	waitStatus(t, ts.reg, "node-1", registry.StatusOnline)
+
+	mustSend(t, stream, metricsReq(1))
+	mustRecv(t, stream)
+	if n, _ := ts.reg.Get("node-1"); n.LastSample == nil {
+		t.Error("last sample should be recorded after metrics ack")
+	}
+
+	if err := stream.CloseSend(); err != nil {
+		t.Fatalf("close send: %v", err)
+	}
+	waitStatus(t, ts.reg, "node-1", registry.StatusOffline)
+}
+
+func TestServer_NewSessionSupersedesOld(t *testing.T) {
+	t.Parallel()
+	ts := startServer(t)
+
+	oldStream := ts.open(t)
+	mustSend(t, oldStream, helloReq())
+	mustRecv(t, oldStream)
+
+	newStream := ts.open(t)
+	mustSend(t, newStream, helloReq())
+	mustRecv(t, newStream)
+
+	// 旧会话被服务端以 Aborted 关闭。
+	if _, err := oldStream.Recv(); status.Code(err) != codes.Aborted {
+		t.Errorf("old session err = %v, want Aborted", err)
+	}
+
+	// 新会话不受影响，节点保持在线。
+	mustSend(t, newStream, metricsReq(1))
+	if mustRecv(t, newStream).GetMetricsAck() == nil {
+		t.Error("new session should keep working")
+	}
+	waitStatus(t, ts.reg, "node-1", registry.StatusOnline)
 }
