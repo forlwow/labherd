@@ -7,8 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -38,12 +41,18 @@ func run() error {
 	nvidiaSMI := flag.String("nvidia-smi", "", "path to nvidia-smi (default: search PATH and known locations)")
 	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	advertiseIP := flag.String("advertise-ip", "", "IP shown for this node (default: source address seen by the controller)")
+	excludeMounts := flag.String("exclude-mounts", "", "comma-separated mount point prefixes to skip, in addition to the defaults")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("labherd-agent %s\n", version.Version)
 		return nil
 	}
+	if *advertiseIP != "" && net.ParseIP(*advertiseIP) == nil {
+		return fmt.Errorf("invalid -advertise-ip %q", *advertiseIP)
+	}
+	excluded := append(slices.Clone(collector.DefaultExcludedMounts), splitList(*excludeMounts)...)
 
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(*logLevel)); err != nil {
@@ -56,7 +65,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("read host info: %w", err)
 	}
-	host, err := collector.NewHost()
+	host, err := collector.NewHost(excluded)
 	if err != nil {
 		return fmt.Errorf("create host collector: %w", err)
 	}
@@ -85,6 +94,7 @@ func run() error {
 		GPUs:           gpus,
 		Sampler:        collector.NewSampler(log, collectors...),
 		Interval:       *interval,
+		IP:             *advertiseIP,
 	}
 	log.Info("agent starting",
 		"node_id", cfg.NodeID,
@@ -95,7 +105,10 @@ func run() error {
 		"cpu_logical_cores", hostInfo.GetCpuLogicalCores(),
 		"memory_total_bytes", hostInfo.GetMemoryTotalBytes(),
 		"gpu_count", len(gpus),
-		"gpu_driver_version", hostInfo.GetGpuDriverVersion())
+		"gpu_driver_version", hostInfo.GetGpuDriverVersion(),
+		"advertise_ip", cfg.IP,
+		"excluded_mounts", excluded,
+	)
 
 	if err := transport.Run(ctx, cfg, log); err != nil {
 		return err
@@ -129,4 +142,15 @@ func setupGPU(ctx context.Context, explicit string, log *slog.Logger) (
 	}
 	log.Info("gpu collector enabled", "nvidia_smi", path)
 	return gpu, gpus, driverVersion, nil
+}
+
+// splitList 把逗号分隔的参数拆成列表，去掉两端空格和空项。
+func splitList(s string) []string {
+	var out []string
+	for item := range strings.SplitSeq(s, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }

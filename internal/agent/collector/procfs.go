@@ -165,19 +165,51 @@ var diskFSTypes = map[string]bool{
 	"zfs":   true,
 }
 
-// localDisks 选出需要上报的挂载点：本地磁盘文件系统、可写。
-// 同一设备挂载多次时（bind mount、docker、WSL 的 /mnt/wslg/distro）只保留第一次出现的挂载点。
-func localDisks(mounts []mount) []mount {
-	seen := make(map[string]bool)
+// DefaultExcludedMounts 是默认不上报的挂载点前缀：启动分区、snap，以及容器运行时的数据目录。
+// 这些挂载可能是 ext4/xfs，按文件系统类型过滤不掉。
+var DefaultExcludedMounts = []string{
+	"/boot",
+	"/snap",
+	"/run",
+	"/var/lib/docker",
+	"/var/lib/containerd",
+	"/var/lib/kubelet",
+}
+
+// localDisks 选出需要上报的挂载点：本地磁盘文件系统、可写、不在 excluded 中的路径下。
+// 同一设备挂载多次时（bind mount 等）只保留路径最短的挂载点；一样长时保留先出现的。
+func localDisks(mounts []mount, excluded []string) []mount {
+	index := make(map[string]int) // 设备 → 在 disks 中的位置
 	var disks []mount
 	for _, m := range mounts {
-		if !diskFSTypes[m.fsType] || m.readOnly || seen[m.device] {
+		if !diskFSTypes[m.fsType] || m.readOnly || underAny(m.point, excluded) {
 			continue
 		}
-		seen[m.device] = true
+		if i, ok := index[m.device]; ok {
+			if len(m.point) < len(disks[i].point) {
+				disks[i] = m
+			}
+			continue
+		}
+		index[m.device] = len(disks)
 		disks = append(disks, m)
 	}
 	return disks
+}
+
+// underAny 判断 path 是否等于某个前缀或位于其下。
+// "/boot" 匹配 "/boot" 与 "/boot/efi"，不匹配 "/bootstrap"。前缀 "/" 会排除一切，因此忽略。
+func underAny(path string, prefixes []string) bool {
+	for _, p := range prefixes {
+		p = strings.TrimSuffix(p, "/")
+		if p == "" {
+			continue
+		}
+		if path == p || strings.HasPrefix(path, p+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func hasOption(options, want string) bool {
