@@ -35,7 +35,7 @@ func fakeStatfs(path string) (diskSpace, error) {
 func TestHost_Collect(t *testing.T) {
 	t.Parallel()
 	root := fakeRoot()
-	h, err := newHost(root, fakeStatfs)
+	h, err := newHost(root, fakeStatfs, nil)
 	if err != nil {
 		t.Fatalf("newHost: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestHost_Collect(t *testing.T) {
 
 func TestNewHost_FailsWithoutProcStat(t *testing.T) {
 	t.Parallel()
-	if _, err := newHost(fstest.MapFS{}, fakeStatfs); err == nil {
+	if _, err := newHost(fstest.MapFS{}, fakeStatfs, nil); err == nil {
 		t.Error("want error, got nil")
 	}
 }

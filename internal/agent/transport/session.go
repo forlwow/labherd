@@ -40,6 +40,8 @@ type Config struct {
 	InstanceID string
 	// Hostname 仅用于显示。
 	Hostname string
+	// IP 是手动指定的节点 IP；为空时由 Controller 使用连接的来源地址。
+	IP string
 	// AgentVersion 是 Agent 的版本号。
 	AgentVersion string
 	// Host 是主机的静态信息，随 Hello 发送。
@@ -154,6 +156,7 @@ func handshake(stream agentv1.AgentService_OpenSessionClient, cfg Config, log *s
 			AgentVersion: cfg.AgentVersion,
 			Host:         cfg.Host,
 			Gpus:         cfg.GPUs,
+			Ip:           cfg.IP,
 		}},
 	})
 	if err != nil && !errors.Is(err, io.EOF) {

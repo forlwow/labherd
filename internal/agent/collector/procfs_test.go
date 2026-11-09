@@ -100,7 +100,7 @@ func TestLocalDisks_FiltersAndDeduplicates(t *testing.T) {
 		t.Fatalf("parseMounts: %v", err)
 	}
 	var got []string
-	for _, m := range localDisks(mounts) {
+	for _, m := range localDisks(mounts, DefaultExcludedMounts) {
 		got = append(got, m.point)
 	}
 	want := []string{"/", "/data disk"}
@@ -122,6 +122,64 @@ func TestUnescapeOctal(t *testing.T) {
 	for in, want := range tests {
 		if got := unescapeOctal(in); got != want {
 			t.Errorf("unescapeOctal(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func points(mounts []mount) []string {
+	var out []string
+	for _, m := range mounts {
+		out = append(out, m.point)
+	}
+	return out
+}
+
+func TestLocalDisks_ExcludesPrefixes(t *testing.T) {
+	t.Parallel()
+	mounts := []mount{
+		{device: "/dev/sda1", point: "/", fsType: "ext4"},
+		{device: "/dev/sda2", point: "/boot", fsType: "ext4"},
+		{device: "/dev/sdb", point: "/bootstrap", fsType: "ext4"},
+		{device: "/dev/mapper/docker-1", point: "/var/lib/docker/devicemapper/mnt/abc", fsType: "xfs"},
+		{device: "/dev/sdc", point: "/data/scratch", fsType: "xfs"},
+	}
+	excluded := append(slices.Clone(DefaultExcludedMounts), "/data/scratch/")
+	got := points(localDisks(mounts, excluded))
+	want := []string{"/", "/bootstrap"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLocalDisks_KeepsShortestMountPerDevice(t *testing.T) {
+	t.Parallel()
+	mounts := []mount{
+		{device: "/dev/sdb", point: "/home/alice/data", fsType: "ext4"},
+		{device: "/dev/sda", point: "/", fsType: "ext4"},
+		{device: "/dev/sdb", point: "/data", fsType: "ext4"},
+	}
+	got := points(localDisks(mounts, nil))
+	want := []string{"/data", "/"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestUnderAny(t *testing.T) {
+	t.Parallel()
+	prefixes := []string{"/boot", "/var/lib/docker/", "/"}
+	tests := map[string]bool{
+		"/boot":                    true,
+		"/boot/efi":                true,
+		"/bootstrap":               false,
+		"/var/lib/docker":          true,
+		"/var/lib/docker/overlay2": true,
+		"/var/lib/dockerd":         false,
+		"/data":                    false,
+	}
+	for path, want := range tests {
+		if got := underAny(path, prefixes); got != want {
+			t.Errorf("underAny(%q) = %v, want %v", path, got, want)
 		}
 	}
 }

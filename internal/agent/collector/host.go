@@ -26,19 +26,20 @@ type statfsFunc func(path string) (diskSpace, error)
 // CPU 利用率是两次 Collect 之间的平均值，所以 Host 会保存上一次的读数，
 // 不能被多个协程同时使用。
 type Host struct {
-	root   fs.FS // 文件系统根目录，文件路径形如 "proc/stat"
-	statfs statfsFunc
-	prev   cpuTimes
+	root     fs.FS // 文件系统根目录，文件路径形如 "proc/stat"
+	statfs   statfsFunc
+	prev     cpuTimes
+	excluded []string // 不上报的挂载点前缀
 }
 
-// NewHost 返回读取本机 /proc 的 Host。
+// NewHost 返回读取本机 /proc 的 Host。excludedMounts 下的挂载点不上报。
 // 创建时先读一次 CPU 时间，第一次 Collect 得到的是创建以来的平均利用率。
-func NewHost() (*Host, error) {
-	return newHost(os.DirFS("/"), statfs)
+func NewHost(excludedMounts []string) (*Host, error) {
+	return newHost(os.DirFS("/"), statfs, excludedMounts)
 }
 
-func newHost(root fs.FS, statfs statfsFunc) (*Host, error) {
-	h := &Host{root: root, statfs: statfs}
+func newHost(root fs.FS, statfs statfsFunc, excluded []string) (*Host, error) {
+	h := &Host{root: root, statfs: statfs, excluded: excluded}
 	t, err := h.readCPUTimes()
 	if err != nil {
 		return nil, err
@@ -93,7 +94,7 @@ func (h *Host) collectDisks() ([]*agentv1.DiskUsage, error) {
 	}
 	var disks []*agentv1.DiskUsage
 	var errs []error
-	for _, m := range localDisks(mounts) {
+	for _, m := range localDisks(mounts, h.excluded) {
 		space, err := h.statfs(m.point)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("statfs %s: %w", m.point, err))

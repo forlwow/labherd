@@ -160,7 +160,10 @@ type Hello struct {
 	Host *HostInfo `protobuf:"bytes,5,opt,name=host,proto3" json:"host,omitempty"`
 	// 本机的 GPU 清单。没有 GPU 或未安装驱动时为空。
 	// 清单变化（如驱动重装）时，Agent 重新建立会话以发送新的 Hello。
-	Gpus          []*GpuInfo `protobuf:"bytes,6,rep,name=gpus,proto3" json:"gpus,omitempty"`
+	Gpus []*GpuInfo `protobuf:"bytes,6,rep,name=gpus,proto3" json:"gpus,omitempty"`
+	// 节点 IP，仅用于显示：实验室习惯用 IP 认服务器。
+	// Agent 用 -advertise-ip 手动指定时填写；为空时由 Controller 填入连接的来源地址。
+	Ip            string `protobuf:"bytes,7,opt,name=ip,proto3" json:"ip,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -235,6 +238,13 @@ func (x *Hello) GetGpus() []*GpuInfo {
 		return x.Gpus
 	}
 	return nil
+}
+
+func (x *Hello) GetIp() string {
+	if x != nil {
+		return x.Ip
+	}
+	return ""
 }
 
 // HostInfo 是主机不随时间变化的信息。
@@ -1267,7 +1277,7 @@ const file_labherd_agent_v1_agent_proto_rawDesc = "" +
 	"\theartbeat\x18\x02 \x01(\v2\x1b.labherd.agent.v1.HeartbeatH\x00R\theartbeat\x12:\n" +
 	"\ametrics\x18\x03 \x01(\v2\x1e.labherd.agent.v1.MetricsBatchH\x00R\ametrics\x12A\n" +
 	"\tprocesses\x18\x04 \x01(\v2!.labherd.agent.v1.ProcessSnapshotH\x00R\tprocessesB\t\n" +
-	"\apayload\"\xe1\x01\n" +
+	"\apayload\"\xf1\x01\n" +
 	"\x05Hello\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
@@ -1275,7 +1285,8 @@ const file_labherd_agent_v1_agent_proto_rawDesc = "" +
 	"\bhostname\x18\x03 \x01(\tR\bhostname\x12#\n" +
 	"\ragent_version\x18\x04 \x01(\tR\fagentVersion\x12.\n" +
 	"\x04host\x18\x05 \x01(\v2\x1a.labherd.agent.v1.HostInfoR\x04host\x12-\n" +
-	"\x04gpus\x18\x06 \x03(\v2\x19.labherd.agent.v1.GpuInfoR\x04gpus\"\xe6\x01\n" +
+	"\x04gpus\x18\x06 \x03(\v2\x19.labherd.agent.v1.GpuInfoR\x04gpus\x12\x0e\n" +
+	"\x02ip\x18\a \x01(\tR\x02ip\"\xe6\x01\n" +
 	"\bHostInfo\x12\x0e\n" +
 	"\x02os\x18\x01 \x01(\tR\x02os\x12%\n" +
 	"\x0ekernel_version\x18\x02 \x01(\tR\rkernelVersion\x12\x1b\n" +
