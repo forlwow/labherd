@@ -21,6 +21,8 @@ import (
 	"github.com/forlwow/labherd/internal/controller/api"
 	"github.com/forlwow/labherd/internal/controller/registry"
 	"github.com/forlwow/labherd/internal/controller/session"
+	"github.com/forlwow/labherd/internal/controller/webui"
+	"github.com/forlwow/labherd/web"
 )
 
 func main() {
@@ -32,7 +34,7 @@ func main() {
 
 func run() error {
 	listenAddr := flag.String("listen", ":9090", "gRPC listen address for agents")
-	httpAddr := flag.String("http-listen", ":8080", "HTTP listen address for the web API")
+	httpAddr := flag.String("http-listen", ":8080", "HTTP listen address for the web UI and API")
 	lostTimeout := flag.Duration("lost-timeout", 10*time.Second, "mark a node lost after this long without messages")
 	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	showVersion := flag.Bool("version", false, "show version and exit")
@@ -66,8 +68,13 @@ func run() error {
 	agentv1.RegisterAgentServiceServer(grpcSrv, session.NewServer(reg, log))
 	defer grpcSrv.Stop()
 
+	ui, hasUI := web.Dist()
+	mux := http.NewServeMux()
+	mux.Handle("/api/", api.NewHandler(reg, log))
+	mux.Handle("/", webui.Handler(ui, hasUI))
+
 	httpSrv := &http.Server{
-		Handler:           api.NewHandler(reg, log),
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -95,6 +102,7 @@ func run() error {
 	log.Info("controller started",
 		"listen", grpcLis.Addr().String(),
 		"http_listen", httpLis.Addr().String(),
+		"web_ui", hasUI,
 		"version", version.Version)
 
 	if err := grpcSrv.Serve(grpcLis); err != nil {
