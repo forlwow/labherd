@@ -1,4 +1,5 @@
-import { Badge, Card, Divider, Group, Stack, Text } from '@mantine/core';
+import { Anchor, Badge, Card, Divider, Group, Stack, Text } from '@mantine/core';
+import { Link } from 'react-router';
 import type { Node } from '../api/types';
 import { formatBytes, formatPercent } from '../utils/format';
 import { isDiskNearlyFull } from '../utils/usage';
@@ -25,9 +26,17 @@ export function NodeCard({ node }: { node: Node }) {
       <Stack gap="sm">
         <Group justify="space-between" gap="xs">
           <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
-            <Text ff="monospace" fw={700} size="lg" style={{ flexShrink: 0 }}>
+            <Anchor
+              component={Link}
+              to={`/nodes/${encodeURIComponent(node.node_id)}`}
+              ff="monospace"
+              fw={700}
+              size="lg"
+              c="bright"
+              style={{ flexShrink: 0 }}
+            >
               {node.ip || node.hostname}
-            </Text>
+            </Anchor>
             {node.ip && (
               <Text c="dimmed" size="sm" truncate>
                 {node.hostname}

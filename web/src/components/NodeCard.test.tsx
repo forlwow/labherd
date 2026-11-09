@@ -1,6 +1,7 @@
 import { MantineProvider } from '@mantine/core';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { makeDisk, makeNode } from '../test/fixtures';
 import { NodeCard } from './NodeCard';
@@ -8,7 +9,9 @@ import { NodeCard } from './NodeCard';
 function renderCard(node = makeNode()) {
   return render(
     <MantineProvider>
-      <NodeCard node={node} />
+      <MemoryRouter>
+        <NodeCard node={node} />
+      </MemoryRouter>
     </MantineProvider>,
   );
 }
@@ -18,6 +21,14 @@ describe('NodeCard', () => {
     renderCard();
     expect(screen.getByText('10.10.3.21')).toBeInTheDocument();
     expect(screen.getByText('gpu-01')).toBeInTheDocument();
+  });
+
+  it('links the title to the detail page', () => {
+    renderCard();
+    expect(screen.getByRole('link', { name: '10.10.3.21' })).toHaveAttribute(
+      'href',
+      '/nodes/gpu-01',
+    );
   });
 
   it('falls back to hostname without ip', () => {
