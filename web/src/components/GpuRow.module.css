@@ -1,0 +1,19 @@
+.row {
+  display: grid;
+  grid-template-columns:
+    1.75rem minmax(4.5rem, 9.5rem) minmax(4rem, 1fr) minmax(6rem, 1.3fr)
+    3.75rem;
+  align-items: center;
+  column-gap: var(--mantine-spacing-xs);
+  min-height: 1.75rem;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.badge {
+  justify-self: end;
+}
