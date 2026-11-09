@@ -5,10 +5,12 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X $(MODULE)/internal/common/version.Version=$(VERSION)
 BIN_DIR := bin
 CMDS    := labherd-agent labherd-controller
+# web/dist 存在（已运行 make web-build）时，把前端嵌入 Controller
+GO_TAGS := $(if $(wildcard web/dist/index.html),webui,)
 
 .DEFAULT_GOAL := help
 .PHONY: all proto proto-lint fmt lint test tidy-check build clean hooks help tools $(CMDS) \
-        web-install web-lint web-test web-build
+        web-install web-lint web-test web-build release
 
 # ===== 组合目标 =====
 all: fmt lint test build ## 提交前完整检查
@@ -57,7 +59,7 @@ tidy-check: ## 检查 go.mod/go.sum 是否已整理
 build: $(CMDS) ## 构建全部程序
 
 $(CMDS):
-	go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$@ ./cmd/$@
+	go build -tags "$(GO_TAGS)" -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$@ ./cmd/$@
 
 # ===== 前端 =====
 # 前端目标不在 all 中，只改后端时不需要安装 Node。
@@ -70,8 +72,10 @@ web-lint: ## 前端代码与格式检查
 web-test: ## 前端单元测试
 	cd web && npm test
 
-web-build: ## 构建前端到 web/dist
+web-build: ## 构建前端到 web/dist，之后 make build 会把它嵌入 Controller
 	cd web && npm run build
+
+release: web-install web-build build ## 构建带前端页面的完整程序
 
 # ===== 杂项 =====
 clean: ## 删除构建产物
