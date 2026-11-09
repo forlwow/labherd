@@ -92,9 +92,26 @@ Playbook 做的事情：创建系统用户 `labherd`，安装 `/usr/local/bin/la
 | `labherd_version` | 是* | 要部署的 Release 版本，如 `v0.1.0` |
 | `labherd_controller_addr` | 是 | Controller 的 gRPC 地址，如 `10.0.0.10:9090` |
 | `labherd_agent_args` | 否 | 其余命令行参数，如 `-advertise-ip=10.0.0.11 -log-level=debug`，可按主机覆盖 |
-| `labherd_agent_binary` | 否 | 本地二进制的绝对路径；设置后不下载 Release，用于测试未发布的构建 |
+| `labherd_agent_binary` | 否 | 本地二进制的绝对路径；设置后不下载 Release，用于测试未发布的构建或控制机无法访问 GitHub 的情况 |
+| `labherd_release_base` | 否 | 发布包下载地址前缀，默认 `https://github.com/forlwow/labherd/releases/download`；可改为内网镜像，目录结构需相同（`<前缀>/<版本>/<文件名>`） |
 
 \* 设置了 `labherd_agent_binary` 时可以不填。
+
+### 控制机访问 GitHub 慢或不通
+
+下载超时 120 秒，最多尝试 3 次。仍然失败时，任选一种：
+
+```bash
+# 1. 走代理
+https_proxy=http://<代理地址>:<端口> ansible-playbook agent.yml -e labherd_version=v0.1.0 -K
+
+# 2. 在能访问 GitHub 的机器上下载并传到控制机，校验后用本地文件部署
+gh release download v0.1.0 -R forlwow/labherd -p labherd-agent-linux-amd64 -p sha256sums.txt -D /tmp/labherd
+scp /tmp/labherd/* <控制机>:~/labherd-release/
+# 在控制机上
+cd ~/labherd-release && sha256sum -c --ignore-missing sha256sums.txt
+ansible-playbook agent.yml -e labherd_agent_binary=$HOME/labherd-release/labherd-agent-linux-amd64 -K
+```
 
 ### 只部署部分服务器
 
