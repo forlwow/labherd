@@ -6,3 +6,6 @@ node_modules/
 web/dist/
 .DS_Store
 .idea
+
+# 部署时填写的实际服务器清单
+deploy/ansible/inventory.ini

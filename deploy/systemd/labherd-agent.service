@@ -1,0 +1,21 @@
+[Unit]
+Description=LabHerd agent
+Documentation=https://github.com/forlwow/labherd/blob/main/docs/operations/deploy.md
+After=network-online.target
+Wants=network-online.target
+# 校园网可能长时间中断，不限制重启次数
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=labherd
+Group=labherd
+EnvironmentFile=/etc/labherd/agent.env
+ExecStart=/usr/local/bin/labherd-agent -controller ${LABHERD_CONTROLLER_ADDR} $LABHERD_AGENT_ARGS
+# 与 Controller 断开后 Agent 会退出，由 systemd 重新拉起（Agent 内置退避重连之前的过渡做法）
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

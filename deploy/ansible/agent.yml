@@ -1,0 +1,114 @@
+# 在 inventory 中的 GPU 服务器上安装或升级 labherd-agent。
+#
+#   cd deploy/ansible
+#   ansible-playbook agent.yml -e labherd_version=v0.1.0
+#
+# 发布包只在控制机（运行 ansible 的机器）上下载一次，再经 SSH 复制到各服务器，
+# 服务器本身不需要访问 GitHub。用法与变量说明见 docs/operations/deploy.md。
+- name: 部署 labherd-agent
+  hosts: gpu_nodes
+  become: true
+  vars:
+    labherd_version: ""                 # 必填（除非指定 labherd_agent_binary），如 v0.1.0
+    labherd_controller_addr: ""         # 必填，如 10.0.0.10:9090
+    labherd_agent_args: ""              # 其余命令行参数，可按主机覆盖
+    labherd_agent_binary: ""            # 本地二进制路径；设置后跳过下载，用于测试未发布的构建
+    labherd_release_base: "https://github.com/forlwow/labherd/releases/download"
+    labherd_cache_dir: "{{ lookup('env', 'HOME') }}/.cache/labherd/{{ labherd_version }}"
+    labherd_asset: labherd-agent-linux-amd64
+
+  pre_tasks:
+    - name: 检查必填变量
+      ansible.builtin.assert:
+        that:
+          - labherd_controller_addr | length > 0
+          - labherd_version | length > 0 or labherd_agent_binary | length > 0
+        fail_msg: 需要设置 labherd_controller_addr，以及 labherd_version 或 labherd_agent_binary
+      run_once: true
+
+    - name: 在控制机创建下载目录
+      ansible.builtin.file:
+        path: "{{ labherd_cache_dir }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      when: labherd_agent_binary | length == 0
+
+    - name: 在控制机下载发布包并校验 sha256
+      ansible.builtin.get_url:
+        url: "{{ labherd_release_base }}/{{ labherd_version }}/{{ labherd_asset }}"
+        dest: "{{ labherd_cache_dir }}/{{ labherd_asset }}"
+        checksum: "sha256:{{ labherd_release_base }}/{{ labherd_version }}/sha256sums.txt"
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      when: labherd_agent_binary | length == 0
+
+  tasks:
+    - name: 创建 labherd 系统用户
+      ansible.builtin.user:
+        name: labherd
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+
+    - name: 安装 Agent 二进制
+      ansible.builtin.copy:
+        src: "{{ labherd_agent_binary if labherd_agent_binary | length > 0 else labherd_cache_dir ~ '/' ~ labherd_asset }}"
+        dest: /usr/local/bin/labherd-agent
+        owner: root
+        group: root
+        mode: "0755"
+      notify: 重启 labherd-agent
+
+    - name: 创建配置目录
+      ansible.builtin.file:
+        path: /etc/labherd
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: 写入 Agent 配置
+      ansible.builtin.template:
+        src: agent.env.j2
+        dest: /etc/labherd/agent.env
+        owner: root
+        group: root
+        mode: "0644"
+      notify: 重启 labherd-agent
+
+    - name: 安装 systemd unit
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../systemd/labherd-agent.service"
+        dest: /etc/systemd/system/labherd-agent.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: 重启 labherd-agent
+
+    - name: 启用并启动 labherd-agent
+      ansible.builtin.systemd_service:
+        name: labherd-agent
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  handlers:
+    - name: 重启 labherd-agent
+      ansible.builtin.systemd_service:
+        name: labherd-agent
+        state: restarted
+        daemon_reload: true
+
+  post_tasks:
+    - name: 确认 Agent 正在运行
+      ansible.builtin.command: systemctl is-active labherd-agent
+      register: labherd_agent_state
+      changed_when: false
+      retries: 3
+      delay: 3
+      until: labherd_agent_state.stdout == "active"
