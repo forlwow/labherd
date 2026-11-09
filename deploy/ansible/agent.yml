@@ -3,6 +3,9 @@
 #   cd deploy/ansible
 #   ansible-playbook agent.yml -e labherd_version=v0.1.0
 #
+# 下载会使用环境变量 https_proxy；控制机访问不了 GitHub 时，
+# 可设置 labherd_release_base 指向镜像，或用 labherd_agent_binary 指定本地文件。
+#
 # 发布包只在控制机（运行 ansible 的机器）上下载一次，再经 SSH 复制到各服务器，
 # 服务器本身不需要访问 GitHub。用法与变量说明见 docs/operations/deploy.md。
 - name: 部署 labherd-agent
@@ -16,7 +19,7 @@
     agent_controller_addr: "{{ labherd_controller_addr | default('') }}"
     agent_args: "{{ labherd_agent_args | default('') }}"
     agent_local_binary: "{{ labherd_agent_binary | default('') }}"
-    agent_release_base: "https://github.com/forlwow/labherd/releases/download"
+    agent_release_base: "{{ labherd_release_base | default('https://github.com/forlwow/labherd/releases/download') }}"
     agent_asset: labherd-agent-linux-amd64
     agent_cache_dir: "{{ lookup('env', 'HOME') }}/.cache/labherd/{{ agent_version }}"
 
@@ -45,6 +48,11 @@
         dest: "{{ agent_cache_dir }}/{{ agent_asset }}"
         checksum: "sha256:{{ agent_release_base }}/{{ agent_version }}/sha256sums.txt"
         mode: "0755"
+        timeout: 120          # 校园网访问 GitHub 较慢，默认 10 秒不够
+      register: agent_download
+      retries: 3
+      delay: 5
+      until: agent_download is succeeded
       delegate_to: localhost
       become: false
       run_once: true
