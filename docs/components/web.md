@@ -46,3 +46,17 @@ web/src/
   routes.tsx    路由表
   theme.ts      Mantine 主题
 ```
+
+## 打包进 Controller
+
+前端不单独部署，构建产物嵌入 `labherd-controller`，与 `/api` 使用同一个端口（`-http-listen`，默认 `:8080`）：
+
+```bash
+make release    # npm ci → vite build → go build（带 webui 构建标签）
+./bin/labherd-controller
+# 浏览器打开 http://<controller-ip>:8080/
+```
+
+- 嵌入代码在 `web/embed.go`（`webui` 构建标签）与 `web/noembed.go`；`make build` 发现 `web/dist/index.html` 存在时自动加上该标签。
+- 没有先构建前端时，`make build` 仍能成功，访问页面只会看到一张说明页，接口不受影响。只改后端时不需要安装 Node。
+- 路由回退由 `internal/controller/webui` 处理：`/nodes/xxx` 这类前端路由返回 `index.html`，`assets/` 下的文件长期缓存。
