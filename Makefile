@@ -5,7 +5,9 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X $(MODULE)/internal/common/version.Version=$(VERSION)
 BIN_DIR := bin
 CMDS    := labherd-agent labherd-controller
-# web/dist 存在（已运行 make web-build）时，把前端嵌入 Controller
+# web/dist 存在（已运行 make web-build）时，把前端嵌入 Controller。
+# 注意：该值在 make 启动时计算，同一次 make 中先 web-build 再 build 拿不到 webui，
+# 所以 release 通过子 make 调用 build。
 GO_TAGS := $(if $(wildcard web/dist/index.html),webui,)
 
 .DEFAULT_GOAL := help
@@ -75,7 +77,10 @@ web-test: ## 前端单元测试
 web-build: ## 构建前端到 web/dist，之后 make build 会把它嵌入 Controller
 	cd web && npm run build
 
-release: web-install web-build build ## 构建带前端页面的完整程序
+release: web-install web-build ## 构建带前端页面的完整程序
+	$(MAKE) build
+	go version -m $(BIN_DIR)/labherd-controller | grep -q -- '-tags=webui' || \
+		{ echo "labherd-controller 没有嵌入前端页面" >&2; exit 1; }
 
 # ===== 杂项 =====
 clean: ## 删除构建产物
