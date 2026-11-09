@@ -6,8 +6,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -36,7 +38,10 @@ func (s *Server) OpenSession(stream agentv1.AgentService_OpenSessionServer) erro
 	if err != nil {
 		return err
 	}
-
+	// Agent 没有指定 IP 时，用连接的来源地址。注册表从 hello 中读取。
+	if hello.GetIp() == "" {
+		hello.Ip = peerIP(stream.Context())
+	}
 	log := s.log.With("node_id", hello.GetNodeId(), "instance_id", hello.GetInstanceId())
 
 	// 先登记再回复 HelloAck：同一节点的旧会话此时被取代。
@@ -68,7 +73,9 @@ func (s *Server) serve(
 	log.Info("agent connected",
 		"hostname", hello.GetHostname(),
 		"agent_version", hello.GetAgentVersion(),
-		"gpu_count", len(hello.GetGpus()))
+		"gpu_count", len(hello.GetGpus()),
+		"ip", hello.GetIp(),
+	)
 
 	// stream.Recv 不受 ctx 控制，放到单独的协程中，主循环才能在会话被取代时及时退出。
 	// 主循环返回后 gRPC 会取消 stream.Context()，接收协程随之结束。
@@ -173,4 +180,20 @@ func handleMetrics(
 			AckedSeq: batch.GetSeq(),
 		}},
 	})
+}
+
+// peerIP 返回 gRPC 连接的来源 IP；取不到时（如测试中的内存连接）返回空字符串。
+func peerIP(ctx context.Context) string {
+	p, ok := peer.FromContext(ctx)
+	if !ok || p.Addr == nil {
+		return ""
+	}
+	if a, ok := p.Addr.(*net.TCPAddr); ok {
+		return a.IP.String()
+	}
+	host, _, err := net.SplitHostPort(p.Addr.String())
+	if err != nil {
+		return ""
+	}
+	return host
 }

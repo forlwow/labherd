@@ -34,9 +34,11 @@ const (
 //
 // 其中的 proto 消息与注册表共享，调用方只能读取，不得修改。
 type Node struct {
-	NodeID       string
-	InstanceID   string
-	Hostname     string
+	NodeID     string
+	InstanceID string
+	Hostname   string
+	// IP 仅用于显示：Agent 指定的地址，或 Controller 看到的连接来源地址。
+	IP           string
 	AgentVersion string
 	Host         *agentv1.HostInfo
 	GPUs         []*agentv1.GpuInfo
@@ -126,6 +128,7 @@ func (r *Registry) Connect(parent context.Context, hello *agentv1.Hello) (*Sessi
 		ConnectedAt:  now,
 		LastSeenAt:   now,
 		LastSample:   lastSample,
+		IP:           hello.GetIp(),
 	}
 	e.sessionID = r.nextID
 	e.connected = true

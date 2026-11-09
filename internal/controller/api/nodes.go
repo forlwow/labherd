@@ -20,6 +20,7 @@ type nodeJSON struct {
 	NodeID       string `json:"node_id"`
 	InstanceID   string `json:"instance_id"`
 	Hostname     string `json:"hostname"`
+	IP           string `json:"ip"`
 	AgentVersion string `json:"agent_version"`
 
 	Status         string     `json:"status"`
@@ -80,6 +81,7 @@ func toNodeJSON(n registry.Node) nodeJSON {
 		Status:       string(n.Status),
 		ConnectedAt:  n.ConnectedAt,
 		LastSeenAt:   n.LastSeenAt,
+		IP:           n.IP,
 		Host: hostJSON{
 			OS:               h.GetOs(),
 			KernelVersion:    h.GetKernelVersion(),

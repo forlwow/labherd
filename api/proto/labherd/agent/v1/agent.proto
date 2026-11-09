@@ -65,6 +65,10 @@ message Hello {
   // 本机的 GPU 清单。没有 GPU 或未安装驱动时为空。
   // 清单变化（如驱动重装）时，Agent 重新建立会话以发送新的 Hello。
   repeated GpuInfo gpus = 6;
+
+  // 节点 IP，仅用于显示：实验室习惯用 IP 认服务器。
+  // Agent 用 -advertise-ip 手动指定时填写；为空时由 Controller 填入连接的来源地址。
+  string ip = 7;
 }
 
 // HostInfo 是主机不随时间变化的信息。

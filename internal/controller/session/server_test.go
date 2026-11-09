@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -236,4 +237,48 @@ func TestServer_NewSessionSupersedesOld(t *testing.T) {
 		t.Error("new session should keep working")
 	}
 	waitStatus(t, ts.reg, "node-1", registry.StatusOnline)
+}
+
+func TestServer_KeepsAdvertisedIP(t *testing.T) {
+	t.Parallel()
+	ts := startServer(t)
+	stream := ts.open(t)
+
+	req := helloReq()
+	req.GetHello().Ip = "10.10.3.21"
+	mustSend(t, stream, req)
+	mustRecv(t, stream)
+
+	if n, _ := ts.reg.Get("node-1"); n.IP != "10.10.3.21" {
+		t.Errorf("ip = %q, want 10.10.3.21", n.IP)
+	}
+}
+
+// fakeAddr 是非 TCP 的连接地址，如 bufconn。
+type fakeAddr string
+
+func (a fakeAddr) Network() string { return string(a) }
+func (a fakeAddr) String() string  { return string(a) }
+
+func TestPeerIP(t *testing.T) {
+	t.Parallel()
+	withPeer := func(addr net.Addr) context.Context {
+		return peer.NewContext(context.Background(), &peer.Peer{Addr: addr})
+	}
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{"ipv4", withPeer(&net.TCPAddr{IP: net.ParseIP("10.10.3.21"), Port: 51234}), "10.10.3.21"},
+		{"ipv6", withPeer(&net.TCPAddr{IP: net.ParseIP("fe80::1"), Port: 51234}), "fe80::1"},
+		{"host:port string", withPeer(fakeAddr("192.168.1.2:9000")), "192.168.1.2"},
+		{"not host:port", withPeer(fakeAddr("bufconn")), ""},
+		{"no peer", context.Background(), ""},
+	}
+	for _, tt := range tests {
+		if got := peerIP(tt.ctx); got != tt.want {
+			t.Errorf("%s: peerIP = %q, want %q", tt.name, got, tt.want)
+		}
+	}
 }
