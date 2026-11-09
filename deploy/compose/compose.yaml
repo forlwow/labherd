@@ -1,0 +1,23 @@
+# Controller 部署。以后 PostgreSQL 与 VictoriaMetrics 也加在这里。
+# 用法见 docs/operations/deploy.md：
+#   cp .env.example .env    # 按需修改
+#   docker compose up -d
+name: labherd
+
+services:
+  controller:
+    image: ghcr.io/forlwow/labherd-controller:${LABHERD_VERSION:-latest}
+    restart: unless-stopped
+    # 使用宿主机网络：Controller 要看到 Agent 的真实源 IP（作为节点 IP 显示），
+    # 端口映射在部分环境下会把源地址换成网关地址。
+    network_mode: host
+    command:
+      - -listen=${LABHERD_GRPC_LISTEN:-:9090}
+      - -http-listen=${LABHERD_HTTP_LISTEN:-:8080}
+      - -lost-timeout=${LABHERD_LOST_TIMEOUT:-30s}
+      - -log-level=${LABHERD_LOG_LEVEL:-info}
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "3"
