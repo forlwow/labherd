@@ -1,6 +1,6 @@
-# web
+# web 组件说明
 
-LabHerd 的前端：React + TypeScript，用 Vite 构建，组件库为 Mantine，数据请求用 TanStack Query。
+LabHerd 的前端：React + TypeScript，用 Vite 构建，组件库为 Mantine，数据请求用 TanStack Query。选型理由见 [ADR 0005](../adr/0005-web-stack-and-embedding.md)，源码在 `web/`。
 
 ## 环境
 
@@ -39,7 +39,7 @@ LABHERD_CONTROLLER_HTTP=http://10.0.0.5:8080 npm run dev
 ## 目录
 
 ```
-src/
+web/src/
   components/   通用组件（大驼峰文件名）
   pages/        页面，每个页面一个小写短横线目录
   test/         测试工具与全局配置
