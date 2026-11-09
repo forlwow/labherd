@@ -36,7 +36,7 @@ export function diskColor(disk: Disk): string {
   const ratio = diskUsedRatio(disk);
   if (ratio >= DISK_CRITICAL_RATIO) return 'red';
   if (ratio >= DISK_WARN_RATIO) return 'yellow';
-  return 'gray';
+  return 'gray.6';
 }
 
 export function isDiskNearlyFull(disk: Disk): boolean {

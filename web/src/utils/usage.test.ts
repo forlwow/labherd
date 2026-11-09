@@ -29,7 +29,7 @@ describe('disks', () => {
   });
 
   it('colors only nearly full disks', () => {
-    expect(diskColor(makeDisk('/', 1, 600))).toBe('gray');
+    expect(diskColor(makeDisk('/', 1, 600))).toBe('gray.6');
     expect(diskColor(makeDisk('/', 1, 80))).toBe('yellow');
     expect(diskColor(makeDisk('/', 1, 20))).toBe('red');
   });
