@@ -287,16 +287,17 @@ gh pr ready          # 草稿 PR 完成后标记为可审查
 
 ### 7.7 CI 检查
 
-合并前必须通过以下四项检查：
+合并前必须通过以下五项检查：
 
 | 检查 | 来源 | 内容 |
 |---|---|---|
 | `lint` | `ci.yml` | golangci-lint 代码检查与格式检查 |
 | `test` | `ci.yml` | go mod tidy 检查、带竞争检测的单元测试、覆盖率 |
 | `build` | `ci.yml` | 构建全部程序，lint 与 test 通过后才执行 |
+| `web` | `ci.yml` | 前端 ESLint 与 Prettier 检查、单元测试、类型检查与构建 |
 | `check` | `pr-title.yml` | PR 标题格式 |
 
-检查失败时，在 PR 页面点击 Details 查看日志，在本地用相同命令复现（`make lint`、`make test`），修复后推送到**同一分支**，PR 与 CI 会自动更新，不要重新创建 PR。
+检查失败时，在 PR 页面点击 Details 查看日志，在本地用相同命令复现（`make lint`、`make test`；前端用 `make web-lint`、`make web-test`、`make web-build`），修复后推送到**同一分支**，PR 与 CI 会自动更新，不要重新创建 PR。
 
 ```bash
 gh pr checks --watch      # 在终端查看检查进度
