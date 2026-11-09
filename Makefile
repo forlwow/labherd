@@ -7,7 +7,8 @@ BIN_DIR := bin
 CMDS    := labherd-agent labherd-controller
 
 .DEFAULT_GOAL := help
-.PHONY: all proto proto-lint fmt lint test tidy-check build clean hooks help tools $(CMDS)
+.PHONY: all proto proto-lint fmt lint test tidy-check build clean hooks help tools $(CMDS) \
+        web-install web-lint web-test web-build
 
 # ===== 组合目标 =====
 all: fmt lint test build ## 提交前完整检查
@@ -57,6 +58,20 @@ build: $(CMDS) ## 构建全部程序
 
 $(CMDS):
 	go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$@ ./cmd/$@
+
+# ===== 前端 =====
+# 前端目标不在 all 中，只改后端时不需要安装 Node。
+web-install: ## 安装前端依赖
+	cd web && npm ci
+
+web-lint: ## 前端代码与格式检查
+	cd web && npm run lint
+
+web-test: ## 前端单元测试
+	cd web && npm test
+
+web-build: ## 构建前端到 web/dist
+	cd web && npm run build
 
 # ===== 杂项 =====
 clean: ## 删除构建产物
