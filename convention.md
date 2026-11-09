@@ -14,7 +14,7 @@
 | `gen/` | 由 `make proto` 生成的代码 | 手写代码，禁止手改 |
 | `migrations/` | 数据库迁移脚本 | — |
 | `test/` | 跨组件的集成测试、压测工具 | 单元测试（放在源码旁） |
-| `web/` | 前端 | — |
+| `web/` | 前端；`embed.go` / `noembed.go` 把构建产物嵌入 Controller | 后端逻辑 |
 | `build/` | Dockerfile | — |
 | `deploy/` | compose、systemd、ansible | — |
 | `docs/` | 项目级文档、ADR、组件运行说明、测试报告（见第 8 节） | 接口字段说明（写在 .proto 注释中） |
