@@ -8,44 +8,47 @@
 - name: 部署 labherd-agent
   hosts: gpu_nodes
   become: true
+  # 可配置变量（labherd_version、labherd_controller_addr、labherd_agent_args、
+  # labherd_agent_binary）不在这里定义默认值：play 的 vars 优先级高于 inventory，
+  # 在这里写默认值会覆盖 inventory 中的设置。下面只定义由它们派生的内部变量。
   vars:
-    labherd_version: ""                 # 必填（除非指定 labherd_agent_binary），如 v0.1.0
-    labherd_controller_addr: ""         # 必填，如 10.0.0.10:9090
-    labherd_agent_args: ""              # 其余命令行参数，可按主机覆盖
-    labherd_agent_binary: ""            # 本地二进制路径；设置后跳过下载，用于测试未发布的构建
-    labherd_release_base: "https://github.com/forlwow/labherd/releases/download"
-    labherd_cache_dir: "{{ lookup('env', 'HOME') }}/.cache/labherd/{{ labherd_version }}"
-    labherd_asset: labherd-agent-linux-amd64
+    agent_version: "{{ labherd_version | default('') }}"
+    agent_controller_addr: "{{ labherd_controller_addr | default('') }}"
+    agent_args: "{{ labherd_agent_args | default('') }}"
+    agent_local_binary: "{{ labherd_agent_binary | default('') }}"
+    agent_release_base: "https://github.com/forlwow/labherd/releases/download"
+    agent_asset: labherd-agent-linux-amd64
+    agent_cache_dir: "{{ lookup('env', 'HOME') }}/.cache/labherd/{{ agent_version }}"
 
   pre_tasks:
     - name: 检查必填变量
       ansible.builtin.assert:
         that:
-          - labherd_controller_addr | length > 0
-          - labherd_version | length > 0 or labherd_agent_binary | length > 0
+          - agent_controller_addr | length > 0
+          - agent_version | length > 0 or agent_local_binary | length > 0
         fail_msg: 需要设置 labherd_controller_addr，以及 labherd_version 或 labherd_agent_binary
       run_once: true
 
     - name: 在控制机创建下载目录
       ansible.builtin.file:
-        path: "{{ labherd_cache_dir }}"
+        path: "{{ agent_cache_dir }}"
         state: directory
         mode: "0755"
       delegate_to: localhost
       become: false
       run_once: true
-      when: labherd_agent_binary | length == 0
+      when: agent_local_binary | length == 0
 
     - name: 在控制机下载发布包并校验 sha256
       ansible.builtin.get_url:
-        url: "{{ labherd_release_base }}/{{ labherd_version }}/{{ labherd_asset }}"
-        dest: "{{ labherd_cache_dir }}/{{ labherd_asset }}"
-        checksum: "sha256:{{ labherd_release_base }}/{{ labherd_version }}/sha256sums.txt"
+        url: "{{ agent_release_base }}/{{ agent_version }}/{{ agent_asset }}"
+        dest: "{{ agent_cache_dir }}/{{ agent_asset }}"
+        checksum: "sha256:{{ agent_release_base }}/{{ agent_version }}/sha256sums.txt"
         mode: "0755"
       delegate_to: localhost
       become: false
       run_once: true
-      when: labherd_agent_binary | length == 0
+      when: agent_local_binary | length == 0
 
   tasks:
     - name: 创建 labherd 系统用户
@@ -57,7 +60,7 @@
 
     - name: 安装 Agent 二进制
       ansible.builtin.copy:
-        src: "{{ labherd_agent_binary if labherd_agent_binary | length > 0 else labherd_cache_dir ~ '/' ~ labherd_asset }}"
+        src: "{{ agent_local_binary if agent_local_binary | length > 0 else agent_cache_dir ~ '/' ~ agent_asset }}"
         dest: /usr/local/bin/labherd-agent
         owner: root
         group: root
