@@ -5,6 +5,16 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LabHerd</title>
+    <script>
+      // 在页面渲染前设置配色，避免刷新时先闪一下默认配色。键名与 Mantine 的 localStorage 一致。
+      try {
+        var scheme = localStorage.getItem('mantine-color-scheme-value');
+        if (scheme !== 'light' && scheme !== 'dark') {
+          scheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-mantine-color-scheme', scheme);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
