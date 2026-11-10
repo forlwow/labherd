@@ -1,0 +1,4 @@
+/* 白天配色下页面底色用浅灰，白色卡片才有层次；夜间沿用默认底色。 */
+.main {
+  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-body));
+}
